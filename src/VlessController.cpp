@@ -422,7 +422,6 @@ void VlessController::reloadFromStore()
 
 void VlessController::loadSubscription(const QString &url)
 {
-    // happ://add/<real-url> → достаём настоящий URL.
     QString real = url.trimmed();
     const QString happPrefix = QStringLiteral("happ://add/");
     if (real.startsWith(happPrefix))
@@ -435,10 +434,15 @@ void VlessController::loadSubscription(const QString &url)
 
     setStatus(QStringLiteral("Загрузка подписки…"));
 
-    // Скачиваем синхронно (с таймаутом) — для прототипа достаточно.
+    // ВАЖНО: User-Agent = "Happ/1.0". Многие подписочные сервисы
+    // (raketa-service, paywalled-боты) фильтруют по UA и для неизвестных
+    // клиентов отдают заглушку вместо реальных ключей. Happ — самый
+    // широко принимаемый UA, поэтому косим под него.
     QNetworkAccessManager mgr;
     QNetworkRequest req((QUrl(real)));
-    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("AmSalesVPN"));
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Happ/1.0"));
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = mgr.get(req);
 
     QEventLoop loop;
@@ -458,24 +462,92 @@ void VlessController::loadSubscription(const QString &url)
     QByteArray data = reply->readAll();
     reply->deleteLater();
 
-    // Подписки часто закодированы base64. Пробуем декодировать.
-    QByteArray decoded = QByteArray::fromBase64(data);
-    QString text = QString::fromUtf8(
-        decoded.contains("vless://") ? decoded : data);
+    // Собираем все возможные vless://-ссылки тремя путями.
+    QStringList found;
 
-    // Каждая строка — отдельный ключ.
-    int added = 0;
+    // Путь 1: base64-encoded plain list. Если декодированный текст
+    // содержит "vless://" — берём его.
+    {
+        const QByteArray decoded = QByteArray::fromBase64(data);
+        if (decoded.contains("vless://"))
+            data = decoded;   // дальше работаем с декодированным
+    }
+    const QString text = QString::fromUtf8(data);
+
+    // Путь 2: plain-список (одна ссылка на строку).
     const QStringList lines = text.split(QRegularExpression(QStringLiteral("[\\r\\n]+")),
                                          Qt::SkipEmptyParts);
     for (const QString &line : lines) {
-        if (line.trimmed().startsWith(QStringLiteral("vless://"))) {
-            const Server s = parseVless(line);
-            if (s.valid) {
-                m_serversData.append(s);
-                if (m_store) m_store->addKey(s.rawUri);   // сохраняем
-                ++added;
+        const QString tr = line.trimmed();
+        if (tr.startsWith(QStringLiteral("vless://"), Qt::CaseInsensitive))
+            found << tr;
+    }
+
+    // Путь 3: xray/sing-box JSON-конфиг (как у Happ-формата от raketa и др.).
+    // Выдёргиваем vless-outbound из outbounds[].
+    if (found.isEmpty()) {
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QJsonArray outbounds;
+        if (doc.isArray() && !doc.array().isEmpty()
+         && doc.array().first().isObject()) {
+            outbounds = doc.array().first().toObject()
+                           .value(QStringLiteral("outbounds")).toArray();
+        } else if (doc.isObject()) {
+            outbounds = doc.object().value(QStringLiteral("outbounds")).toArray();
+        }
+        for (const QJsonValue &v : outbounds) {
+            const QJsonObject o = v.toObject();
+            if (o.value(QStringLiteral("protocol")).toString() != QStringLiteral("vless"))
+                continue;
+            const QJsonObject settings = o.value(QStringLiteral("settings")).toObject();
+            const QJsonArray vnext = settings.value(QStringLiteral("vnext")).toArray();
+            for (const QJsonValue &n : vnext) {
+                const QJsonObject node = n.toObject();
+                const QString host = node.value(QStringLiteral("address")).toString();
+                const int port = node.value(QStringLiteral("port")).toInt();
+                const QJsonArray users = node.value(QStringLiteral("users")).toArray();
+                if (users.isEmpty()) continue;
+                const QJsonObject u = users.first().toObject();
+                const QString uuid = u.value(QStringLiteral("id")).toString();
+                const QJsonObject stream = o.value(QStringLiteral("streamSettings")).toObject();
+                const QString network = stream.value(QStringLiteral("network")).toString();
+                const QString security = stream.value(QStringLiteral("security")).toString();
+                if (host.isEmpty() || uuid.isEmpty() || port <= 0) continue;
+                found << QStringLiteral("vless://%1@%2:%3?type=%4&security=%5#sub")
+                           .arg(uuid, host, QString::number(port),
+                                network.isEmpty() ? QStringLiteral("tcp") : network,
+                                security.isEmpty() ? QStringLiteral("none") : security);
             }
         }
+    }
+
+    // Детект заглушки от платных сервисов: все ключи указывают на 0.0.0.0
+    // или ровно один и помечен "Не поддерживается". Это значит подписка
+    // не активна / истекла / привязана к другому клиенту.
+    bool onlyStub = !found.isEmpty();
+    for (const QString &k : found) {
+        if (!k.contains(QStringLiteral("@0.0.0.0:"))
+         && !k.contains(QStringLiteral("@127.0.0.1:"))) {
+            onlyStub = false;
+            break;
+        }
+    }
+    if (onlyStub) {
+        emit errorOccurred(QStringLiteral(
+            "Подписка не активна или истекла. Сервис вернул только "
+            "ключ-заглушку 0.0.0.0. Проверьте оплату/срок подписки "
+            "или возьмите новую ссылку."));
+        return;
+    }
+
+    // Применяем найденные ключи.
+    int added = 0;
+    for (const QString &uri : found) {
+        const Server s = parseVless(uri);
+        if (!s.valid) continue;
+        m_serversData.append(s);
+        if (m_store) m_store->addKey(s.rawUri);
+        ++added;
     }
 
     rebuildServerList();

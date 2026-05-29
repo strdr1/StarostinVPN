@@ -3,7 +3,7 @@
 ; ─────────────────────────────────────────────────────────────────────────
 
 #define AppName "Starostin VPN"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Starostin"
 #define AppExe "StarostinVPN.exe"
 

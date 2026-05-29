@@ -38,7 +38,7 @@ public:
 
     explicit UpdateChecker(Store *store = nullptr, QObject *parent = nullptr);
 
-    static QString currentVersion() { return QStringLiteral("1.0.0"); }
+    static QString currentVersion() { return QStringLiteral("1.0.1"); }
     QString latestVersion() const { return m_latest; }
     QString downloadUrl() const { return m_url; }
     QString notes() const { return m_notes; }
