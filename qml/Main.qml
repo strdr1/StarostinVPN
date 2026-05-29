@@ -639,20 +639,28 @@ Window {
                     // Контейнер для вкладки в StackLayout. Внутри —
                     // Flickable, который скроллит длинный контент.
                     Item {
+                        id: optionsTab
                         Flickable {
+                            id: optionsFlick
                             anchors.fill: parent
-                            contentWidth: optionsCol.width
+                            // Ширина контента = ширине Flickable (= ширине
+                            // вкладки = ширине левой панели минус отступы).
+                            // Минус 6 — резерв под скроллбар, чтобы он не
+                            // налезал на правые элементы (тумблеры и т.п.).
+                            contentWidth: width - 6
                             contentHeight: optionsCol.implicitHeight
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
-                            // Ползунок скролла — тонкая полоска справа.
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
                                 width: 4
                             }
                             ColumnLayout {
                                 id: optionsCol
-                                width: parent.width
+                                // Растягиваем на всю ширину Flickable —
+                                // чтобы тумблеры справа не наезжали и
+                                // подписи не обрезались.
+                                width: optionsFlick.contentWidth
                                 spacing: 0
 
                                 Text {

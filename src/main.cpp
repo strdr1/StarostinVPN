@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     QApplication::setApplicationName(QStringLiteral("Starostin VPN"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.2"));
+    QApplication::setApplicationVersion(QStringLiteral("1.0.3"));
     QApplication::setOrganizationName(QStringLiteral("Starostin"));
     // Не выходим при закрытии окна — приложение живёт в трее.
     QApplication::setQuitOnLastWindowClosed(false);
