@@ -635,17 +635,33 @@ Window {
                         }
                     }
 
-                    // ═══ Вкладка Опции (настройки) — минимал, без карточек ═══
-                    ColumnLayout {
-                        spacing: 0
+                    // ═══ Вкладка Опции (настройки) — со скроллом ═══
+                    // Контейнер для вкладки в StackLayout. Внутри —
+                    // Flickable, который скроллит длинный контент.
+                    Item {
+                        Flickable {
+                            anchors.fill: parent
+                            contentWidth: optionsCol.width
+                            contentHeight: optionsCol.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            // Ползунок скролла — тонкая полоска справа.
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                                width: 4
+                            }
+                            ColumnLayout {
+                                id: optionsCol
+                                width: parent.width
+                                spacing: 0
 
-                        Text {
-                            text: qsTr("Настройки")
-                            color: win.textHi
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
-                            Layout.bottomMargin: 14
-                        }
+                                Text {
+                                    text: qsTr("Настройки")
+                                    color: win.textHi
+                                    font.pixelSize: 18
+                                    font.weight: Font.DemiBold
+                                    Layout.bottomMargin: 14
+                                }
 
                         // — Строка-тумблер: .ru напрямую —
                         RowLayout {
@@ -910,8 +926,10 @@ Window {
                                 } }
                         }
 
-                        Item { Layout.fillHeight: true }
-                    }
+                                Item { height: 20 }   // отступ снизу для скролла
+                            } // optionsCol
+                        } // Flickable
+                    } // Item-обёртка вкладки Опции
 
                     // ═══ Вкладка Диагностика ═══
                     ColumnLayout {
