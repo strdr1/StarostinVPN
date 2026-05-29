@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "url": "https://github.com/strdr1/StarostinVPN/releases/latest/download/StarostinVPN-Setup.exe",
+  "notes": "Первая версия Starostin VPN: VLESS+REALITY, обход DPI, Cloudflare-ключ с авто-обновлением, режим «Шлюз для локальной сети», поддержка happ:// и подписок."
+}
