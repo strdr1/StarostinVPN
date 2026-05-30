@@ -1,14 +1,58 @@
 #include "GatewayController.h"
+#include "VlessController.h"
 
 #include <QProcess>
 #include <QNetworkInterface>
 #include <QHostAddress>
 #include <QRegularExpression>
 
-GatewayController::GatewayController(QObject *parent)
-    : QObject(parent)
+GatewayController::GatewayController(VlessController *vpn, QObject *parent)
+    : QObject(parent), m_vpn(vpn)
 {
     detectLocalNetwork();
+
+    // На случай если прошлый запуск StarostinVPN крэшнулся и оставил
+    // висеть NAT — снесём его. Делаем синхронно в конструкторе.
+    cleanupExistingNat();
+
+    // Подписываемся на VPN: если он упал — выключаем шлюз; если
+    // подключился — UI разблокирует тумблер.
+    if (m_vpn) {
+        connect(m_vpn, &VlessController::connectedChanged,
+                this, &GatewayController::onVpnConnectedChanged);
+    }
+}
+
+bool GatewayController::canEnable() const
+{
+    // Без VPN включать шлюз нельзя: получим ровно то что было у юзера
+    // только что — NAT навешан, forwarding включен, маршрута через VPN
+    // нет → ПК сам теряет инет, локалка тоже идёт в никуда.
+    return m_vpn && m_vpn->connected();
+}
+
+void GatewayController::onVpnConnectedChanged()
+{
+    emit canEnableChanged();   // UI пересчитает блокировку тумблера
+    if (m_enabled && m_vpn && !m_vpn->connected()) {
+        // VPN отключился, а шлюз был включён — экстренный откат, чтобы
+        // не оставить ПК-маршрутизатор без маршрута через туннель.
+        setStatus(QStringLiteral("VPN отключился — выключаю шлюз"));
+        setEnabled(false);
+    }
+}
+
+void GatewayController::cleanupExistingNat()
+{
+    // Тихо снести наш NAT если он остался от прошлого запуска.
+    // Безопасно даже если NAT нет.
+    const QString script = QStringLiteral(
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+        "Get-NetNat -Name '%1' -ErrorAction SilentlyContinue |"
+        "  Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue;"
+        "Write-Output 'ok'"
+    ).arg(m_natName);
+    runPwsh(script);
 }
 
 GatewayController::~GatewayController()
@@ -132,6 +176,11 @@ void GatewayController::setEnabled(bool on)
     if (on == m_enabled) return;
 
     if (on) {
+        // Защита: без VPN включать шлюз бессмысленно и опасно.
+        if (!canEnable()) {
+            setStatus(QStringLiteral("Сначала подключите VPN — без него шлюз отрубит локалке инет"));
+            return;
+        }
         detectLocalNetwork();
         if (m_subnet.isEmpty()) {
             setStatus(QStringLiteral("Нет локальной сети — нечего раздавать"));

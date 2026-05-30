@@ -861,7 +861,23 @@ Window {
                                Layout.topMargin: 16; Layout.bottomMargin: 4 }
                         Text { Layout.fillWidth: true; wrapMode: Text.WordWrap
                                text: qsTr("Когда включено — этот ПК раздаёт VPN всем устройствам локальной сети. Один раз настройте на роутере: «Шлюз по умолчанию = ") + (Gateway.localIp || "?") + qsTr("».")
-                               color: win.textLo; font.pixelSize: 11; Layout.bottomMargin: 8 }
+                               color: win.textLo; font.pixelSize: 11; Layout.bottomMargin: 6 }
+                        // Предупреждение если VPN не подключён — тумблер заблокирован.
+                        Text { Layout.fillWidth: true; visible: !Gateway.canEnable && !Gateway.enabled
+                               text: qsTr("⚠ Сначала подключите VPN — без него шлюз отрубит локалке интернет")
+                               color: "#E8B33C"; font.pixelSize: 11; wrapMode: Text.Wrap
+                               Layout.bottomMargin: 6 }
+                        // Активное состояние — красная плашка-напоминание.
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 28
+                            visible: Gateway.enabled
+                            color: Qt.rgba(0.9, 0.4, 0.25, 0.18)
+                            border.color: Qt.rgba(0.9, 0.4, 0.25, 0.5); border.width: 1
+                            Text { anchors.fill: parent; anchors.margins: 6
+                                   text: qsTr("🟢 ШЛЮЗ АКТИВЕН. Не забудьте выключить.")
+                                   color: "#FFB890"; font.pixelSize: 11
+                                   verticalAlignment: Text.AlignVCenter }
+                            Layout.bottomMargin: 6
+                        }
                         RowLayout {
                             Layout.fillWidth: true; spacing: 10
                             Text { Layout.fillWidth: true; text: Gateway.statusText
@@ -871,6 +887,7 @@ Window {
                             Rectangle {
                                 Layout.preferredWidth: 42; Layout.preferredHeight: 23
                                 radius: 12
+                                opacity: Gateway.canEnable || Gateway.enabled ? 1.0 : 0.35
                                 color: Gateway.enabled ? Qt.rgba(win.accent.r,win.accent.g,win.accent.b,0.45)
                                                        : Qt.rgba(1,1,1,0.10)
                                 border.color: Gateway.enabled ? win.accent : Qt.rgba(1,1,1,0.2); border.width: 1
@@ -881,7 +898,9 @@ Window {
                                     color: Gateway.enabled ? win.accent : Qt.rgba(1,1,1,0.45)
                                     Behavior on x { NumberAnimation { duration: 140 } }
                                 }
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                MouseArea { anchors.fill: parent
+                                    enabled: Gateway.canEnable || Gateway.enabled
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                     onClicked: Gateway.setEnabled(!Gateway.enabled) }
                             }
                         }

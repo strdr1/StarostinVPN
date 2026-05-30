@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     QApplication::setApplicationName(QStringLiteral("Starostin VPN"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.3"));
+    QApplication::setApplicationVersion(QStringLiteral("1.0.4"));
     QApplication::setOrganizationName(QStringLiteral("Starostin"));
     // Не выходим при закрытии окна — приложение живёт в трее.
     QApplication::setQuitOnLastWindowClosed(false);
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     CursorHelper cursor;                // глобальные позиция/кнопки мыши
     TrayMenuHelper trayMenu;            // нативное Windows-меню трея
     CfController cf(&store, &vless);    // авто-обновление Cloudflare-ключа
-    GatewayController gateway;          // режим «шлюз для локалки»
+    GatewayController gateway(&vless);  // режим «шлюз для локалки» (связан с VPN)
 
     // ── Логируем ключевые события каждого контроллера в LogController ───
     // Подписываемся на сигналы — никаких знаний о LogController в самих

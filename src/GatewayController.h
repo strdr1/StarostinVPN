@@ -19,19 +19,25 @@
 #include <QObject>
 #include <QString>
 
+class VlessController;
+
 class GatewayController : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool enabled READ enabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool canEnable READ canEnable NOTIFY canEnableChanged)
     Q_PROPERTY(QString localIp READ localIp NOTIFY localIpChanged)
     Q_PROPERTY(QString subnet READ subnet NOTIFY subnetChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
 
 public:
-    explicit GatewayController(QObject *parent = nullptr);
+    explicit GatewayController(VlessController *vpn = nullptr, QObject *parent = nullptr);
     ~GatewayController() override;
 
     bool enabled() const { return m_enabled; }
+    // false если VPN не подключён — UI должен заблокировать тумблер,
+    // иначе пользователь рискует отрубить себе весь интернет.
+    bool canEnable() const;
     QString localIp() const { return m_localIp; }
     QString subnet() const { return m_subnet; }   // напр. "192.168.1.0/24"
     QString statusText() const { return m_status; }
@@ -43,15 +49,23 @@ public slots:
 
 signals:
     void enabledChanged();
+    void canEnableChanged();
     void localIpChanged();
     void subnetChanged();
     void statusTextChanged();
+
+private slots:
+    // Реакция на изменение состояния VPN. Если VPN упал, а шлюз был
+    // включён — гасим шлюз, чтобы локалка не уперлась в мёртвый туннель.
+    void onVpnConnectedChanged();
 
 private:
     void setStatus(const QString &t) { m_status = t; emit statusTextChanged(); }
     bool runPwsh(const QString &script, QString *out = nullptr);
     void detectLocalNetwork();   // заполняет m_localIp, m_subnet
+    void cleanupExistingNat();   // снести наш NAT если остался от прошлой сессии
 
+    VlessController *m_vpn = nullptr;
     bool m_enabled = false;
     QString m_localIp;
     QString m_subnet;
