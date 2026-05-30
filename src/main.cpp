@@ -14,6 +14,7 @@
 #include <QFontDatabase>
 #include <QFont>
 #include <QIcon>
+#include <QNetworkProxy>
 
 #include "ZapretController.h"
 #include "NetworkScanner.h"
@@ -37,8 +38,15 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     QApplication::setApplicationName(QStringLiteral("Starostin VPN"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.4"));
+    QApplication::setApplicationVersion(QStringLiteral("1.0.5"));
     QApplication::setOrganizationName(QStringLiteral("Starostin"));
+
+    // ВАЖНО: игнорировать системный HTTP-прокси / переменные окружения
+    // HTTP_PROXY, HTTPS_PROXY, ALL_PROXY. У пользователя может быть
+    // прописан Hiddify или другой обходчик — нашим запросам это
+    // только мешает (CfController.refresh, UpdateChecker.check,
+    // VlessController.loadSubscription должны ходить НАПРЯМУЮ).
+    QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
     // Не выходим при закрытии окна — приложение живёт в трее.
     QApplication::setQuitOnLastWindowClosed(false);
 
