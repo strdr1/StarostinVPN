@@ -1,5 +1,5 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "url": "https://github.com/strdr1/StarostinVPN/releases/latest/download/StarostinVPN-Setup.exe",
-  "notes": "v1.0.5: игнорируем системные переменные HTTP_PROXY / HTTPS_PROXY / ALL_PROXY. Наши запросы (Cloudflare-ключ, проверка обновлений, загрузка подписок) теперь идут НАПРЯМУЮ, даже если на ПК прописан Hiddify-прокси."
+  "notes": "v1.0.6: критичные фиксы TUN — MTU 9000→1500 (jumbo не пропускался провайдерами), stack system→gvisor (стабильнее на Win11), strict_route=true (не отдаём маршрут Tailscale/Hiddify). Положили wintun.dll v0.14.1 рядом с sing-box. Geo-rule_set скачиваются только если включён режим «РФ напрямую» и не чаще раза в 30 дней."
 }

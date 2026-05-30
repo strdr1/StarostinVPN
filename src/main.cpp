@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     QApplication::setApplicationName(QStringLiteral("Starostin VPN"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.5"));
+    QApplication::setApplicationVersion(QStringLiteral("1.0.6"));
     QApplication::setOrganizationName(QStringLiteral("Starostin"));
 
     // ВАЖНО: игнорировать системный HTTP-прокси / переменные окружения

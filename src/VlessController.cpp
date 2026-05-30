@@ -628,17 +628,25 @@ QString VlessController::buildConfig(const Server &s) const
     }
 
     // Inbound TUN — заворачивает системный трафик.
-    // strict_route=false: мягче к другим VPN на машине (Hiddify), меньше
-    // риск namertво порвать инет. mtu стандартный.
+    // ВАЖНО:
+    //   - mtu=1500 (стандарт Ethernet). 9000 (jumbo) на многих провайдерах
+    //     не пролезает — пакеты режутся, TLS-handshake до сервера не доходит.
+    //   - stack=gvisor — пользовательский TCP/IP стек, работает даже когда
+    //     wintun.dll ведёт себя странно. На Windows 10/11 надёжнее system.
+    //   - strict_route=true — агрессивно перехватываем маршрут даже когда
+    //     рядом крутится Hiddify/Tailscale. Без этого второй TUN-клиент
+    //     может перехватить трафик раньше нас.
+    //   - auto_redirect=false (по умолчанию) — не трогаем iptables/nftables,
+    //     этого на Windows нет.
     QJsonObject tun;
     tun["type"] = "tun";
     tun["tag"] = "tun-in";
     tun["interface_name"] = "amsales0";
     tun["address"] = QJsonArray{ "172.19.0.1/30" };
-    tun["mtu"] = 9000;
+    tun["mtu"] = 1500;
     tun["auto_route"] = true;
-    tun["strict_route"] = false;   // не воюем жёстко за маршрут
-    tun["stack"] = "system";
+    tun["strict_route"] = true;
+    tun["stack"] = "gvisor";
 
     // Outbounds: только proxy + direct (формат sing-box 1.12 — без dns-out).
     QJsonArray outbounds;
@@ -701,17 +709,24 @@ QString VlessController::buildConfig(const Server &s) const
     }
     route["rules"] = rules;
 
-    // Гео-наборы РФ.
-    QJsonArray ruleSet;
-    ruleSet.append(QJsonObject{
-        {"type","remote"},{"tag","geoip-ru"},{"format","binary"},
-        {"url","https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set/country/geoip-ru.srs"},
-        {"download_detour","direct"}});
-    ruleSet.append(QJsonObject{
-        {"type","remote"},{"tag","geosite-ru"},{"format","binary"},
-        {"url","https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set/country/geosite-ru.srs"},
-        {"download_detour","direct"}});
-    route["rule_set"] = ruleSet;
+    // Гео-наборы РФ — только если включён режим "Российский трафик
+    // напрямую". Иначе НЕ скачиваем — два запроса к GitHub на каждом
+    // старте дают 30 сек таймаута на проблемных провайдерах.
+    // update_interval=720h = раз в 30 дней, не каждый запуск.
+    if (m_routeRuDirect) {
+        QJsonArray ruleSet;
+        ruleSet.append(QJsonObject{
+            {"type","remote"},{"tag","geoip-ru"},{"format","binary"},
+            {"url","https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set/country/geoip-ru.srs"},
+            {"download_detour","direct"},
+            {"update_interval","720h"}});
+        ruleSet.append(QJsonObject{
+            {"type","remote"},{"tag","geosite-ru"},{"format","binary"},
+            {"url","https://raw.githubusercontent.com/hiddify/hiddify-geo/rule-set/country/geosite-ru.srs"},
+            {"download_detour","direct"},
+            {"update_interval","720h"}});
+        route["rule_set"] = ruleSet;
+    }
     route["final"] = "proxy";
     route["auto_detect_interface"] = true;
     // Резолвер по умолчанию для исходящих соединений (убирает warn 1.12).
