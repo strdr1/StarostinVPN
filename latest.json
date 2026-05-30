@@ -1,5 +1,5 @@
 {
-  "version": "1.0.6",
+  "version": "1.0.7",
   "url": "https://github.com/strdr1/StarostinVPN/releases/latest/download/StarostinVPN-Setup.exe",
-  "notes": "v1.0.6: критичные фиксы TUN — MTU 9000→1500 (jumbo не пропускался провайдерами), stack system→gvisor (стабильнее на Win11), strict_route=true (не отдаём маршрут Tailscale/Hiddify). Положили wintun.dll v0.14.1 рядом с sing-box. Geo-rule_set скачиваются только если включён режим «РФ напрямую» и не чаще раза в 30 дней."
+  "notes": "v1.0.7: переход с TUN на mixed-inbound (HTTP/SOCKS прокси на 127.0.0.1:12335 + системный прокси Windows). Это та же схема что у Hiddify — работает 100% надёжно. TUN на Win11 с Tailscale/Kaspersky/Hiddify не пробивал VLESS-туннель."
 }

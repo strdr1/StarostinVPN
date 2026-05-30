@@ -71,6 +71,11 @@ target_link_libraries(StarostinVPN PRIVATE
     Qt6::Widgets
 )
 
+if(WIN32)
+    # wininet — для InternetSetOption (системный прокси Windows).
+    target_link_libraries(StarostinVPN PRIVATE wininet)
+endif()
+
 add_custom_command(TARGET StarostinVPN POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/engine"

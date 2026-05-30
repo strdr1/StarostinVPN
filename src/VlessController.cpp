@@ -4,7 +4,10 @@
 
 #ifdef Q_OS_WIN
 #  include <windows.h>  // CREATE_NO_WINDOW для скрытия консоли sing-box
+#  include <wininet.h>  // InternetSetOption для уведомления о смене прокси
 #endif
+
+#include <QSettings>
 
 #include <QProcess>
 #include <QCoreApplication>
@@ -627,26 +630,27 @@ QString VlessController::buildConfig(const Server &s) const
         vless["transport"] = tr;
     }
 
-    // Inbound TUN — заворачивает системный трафик.
-    // ВАЖНО:
-    //   - mtu=1500 (стандарт Ethernet). 9000 (jumbo) на многих провайдерах
-    //     не пролезает — пакеты режутся, TLS-handshake до сервера не доходит.
-    //   - stack=gvisor — пользовательский TCP/IP стек, работает даже когда
-    //     wintun.dll ведёт себя странно. На Windows 10/11 надёжнее system.
-    //   - strict_route=true — агрессивно перехватываем маршрут даже когда
-    //     рядом крутится Hiddify/Tailscale. Без этого второй TUN-клиент
-    //     может перехватить трафик раньше нас.
-    //   - auto_redirect=false (по умолчанию) — не трогаем iptables/nftables,
-    //     этого на Windows нет.
-    QJsonObject tun;
-    tun["type"] = "tun";
-    tun["tag"] = "tun-in";
-    tun["interface_name"] = "amsales0";
-    tun["address"] = QJsonArray{ "172.19.0.1/30" };
-    tun["mtu"] = 1500;
-    tun["auto_route"] = true;
-    tun["strict_route"] = true;
-    tun["stack"] = "gvisor";
+    // Inbound MIXED (HTTP+SOCKS прокси на 127.0.0.1:12335).
+    //
+    // Раньше использовали TUN. На некоторых машинах (Tailscale + Kaspersky
+    // + Hiddify + Win11) TUN-inbound не пробивал VLESS-handshake до
+    // сервера: маршрут устанавливался, но пакеты ходили по кругу из-за
+    // gvisor-стека и auto_route. Hiddify работает на тех же машинах
+    // потому что использует mixed-inbound + системный прокси.
+    //
+    // Переходим на ту же схему: открываем прокси на 127.0.0.1:12335,
+    // выставляем его как системный прокси Windows через реестр (это
+    // делает запускающая сторона — VlessController после старта
+    // sing-box). Браузеры/Telegram/Discord подхватывают и идут через
+    // нас. Минус: UDP-приложения и те что игнорят системный прокси
+    // (некоторые игры) — мимо.
+    QJsonObject mixed;
+    mixed["type"] = "mixed";
+    mixed["tag"] = "mixed-in";
+    mixed["listen"] = "127.0.0.1";
+    mixed["listen_port"] = 12335;
+    mixed["sniff"] = true;
+    mixed["sniff_override_destination"] = true;
 
     // Outbounds: только proxy + direct (формат sing-box 1.12 — без dns-out).
     QJsonArray outbounds;
@@ -741,7 +745,7 @@ QString VlessController::buildConfig(const Server &s) const
     QJsonObject root;
     root["log"] = QJsonObject{{"level","warn"}};
     root["dns"] = dns;
-    root["inbounds"] = QJsonArray{ tun };
+    root["inbounds"] = QJsonArray{ mixed };
     root["outbounds"] = outbounds;
     root["route"] = route;
     root["experimental"] = experimental;
@@ -846,14 +850,20 @@ void VlessController::connectVpn()
             return;
         }
 
-        // 2) проверяем реальный выход в сеть (короткий TCP к 1.1.1.1:443).
+        // 2) проверяем что прокси-сервер sing-box живой (TCP к 127.0.0.1:12335).
+        // Раньше тут была проверка прямого выхода (1.1.1.1:443), но при
+        // mixed-inbound это бессмысленно — пакеты не идут автоматически
+        // через прокси, пока мы его не выставим как системный.
         QTcpSocket probe;
-        probe.connectToHost(QStringLiteral("1.1.1.1"), 443);
-        const bool online = probe.waitForConnected(4000);
+        probe.connectToHost(QStringLiteral("127.0.0.1"), 12335);
+        const bool online = probe.waitForConnected(3000);
         probe.abort();
 
         setConnecting(false);
         if (online) {
+            // Прокси живой — выставляем как системный, чтобы браузеры/Telegram
+            // подхватили автоматически. Hiddify делает ровно то же.
+            setSystemProxy(QStringLiteral("127.0.0.1:12335"));
             setConnected(true);
             setStatus(QStringLiteral("Подключено · %1").arg(s.name));
             m_consecFailures = 0;
@@ -880,6 +890,10 @@ void VlessController::disconnectVpn()
     if (m_keepAliveTimer && m_keepAliveTimer->isActive())
         m_keepAliveTimer->stop();
 
+    // Снимаем системный прокси, чтобы Windows и приложения не пытались
+    // ходить через мёртвый адрес 127.0.0.1:12335.
+    clearSystemProxy();
+
     // Приложение уже от админа — глушим напрямую.
     QProcess::startDetached(QStringLiteral("taskkill"),
         {QStringLiteral("/F"), QStringLiteral("/IM"),
@@ -887,6 +901,44 @@ void VlessController::disconnectVpn()
     setConnected(false);
     setConnecting(false);
     setStatus(QStringLiteral("Не подключено"));
+}
+
+// ── Системный прокси Windows (HKCU\...\Internet Settings) ───────────
+// Делаем то же что Hiddify: пишем в реестр, потом дёргаем
+// InternetSetOption WinINET API чтобы изменения подхватились приложениями
+// без перезагрузки.
+void VlessController::setSystemProxy(const QString &proxy)
+{
+    QSettings s(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"),
+                QSettings::NativeFormat);
+    s.setValue(QStringLiteral("ProxyEnable"), 1);
+    s.setValue(QStringLiteral("ProxyServer"), proxy);
+    // Bypass для локалки и микрософтовских доменов — чтобы Windows Update,
+    // обновления Edge и т.п. не ходили через VPN.
+    s.setValue(QStringLiteral("ProxyOverride"),
+               QStringLiteral("localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>"));
+    s.sync();
+    notifyProxySettingsChanged();
+}
+
+void VlessController::clearSystemProxy()
+{
+    QSettings s(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"),
+                QSettings::NativeFormat);
+    s.setValue(QStringLiteral("ProxyEnable"), 0);
+    s.remove(QStringLiteral("ProxyServer"));
+    s.sync();
+    notifyProxySettingsChanged();
+}
+
+void VlessController::notifyProxySettingsChanged()
+{
+#ifdef Q_OS_WIN
+    // Уведомляем WinINET что настройки прокси сменились — без этого
+    // браузеры на старых настройках сидят до перезапуска.
+    InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
+    InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────

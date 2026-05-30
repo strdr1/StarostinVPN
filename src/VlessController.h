@@ -157,4 +157,9 @@ private:
     int  m_consecFailures = 0;
     void keepAliveTick();
     void reconnectInternal();             // тихий пере-старт sing-box
+
+    // ── Системный прокси Windows (для mixed-inbound режима) ────────────
+    void setSystemProxy(const QString &proxy);   // "host:port"
+    void clearSystemProxy();
+    void notifyProxySettingsChanged();
 };
